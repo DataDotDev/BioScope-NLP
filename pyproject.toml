@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bioscope-nlp-workers"
+version = "0.1.0"
+description = "BioScope NLP worker services for ingesting canonical BioScope events and producing pharma intelligence enrichment"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+kafka = ["kafka-python>=2.0.2"]
+
+[project.scripts]
+bioscope-worker = "bioscope_workers.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
