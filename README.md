@@ -95,7 +95,7 @@ Use JSONL files for replay and output.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .[dev]
+pip install -e '.[dev]'
 python -m bioscope_workers \
   --mode replay \
   --input examples/ingestion-events.jsonl \
@@ -106,47 +106,64 @@ The replay command reads canonical ingestion events from a JSONL file, runs the 
 
 ## Manual Test Walkthrough
 
-Use this flow if you want to verify the worker locally without Kafka.
+Replay the external BioScope ingestion file to verify the worker end-to-end. The replay input file is located at `/Users/dedsec/Desktop/project/BioScope/out/ingestion.jsonl` (older local artifact; schema version is backfilled automatically in replay mode).
 
-1. Create a sample input file with one canonical ingestion event.
+**Option 1: Quick replay (one command)**
 
 ```bash
-mkdir -p examples
-cat > examples/ingestion-events.jsonl <<'EOF'
-{"schema_version":"1.0.0","source":"ClinicalTrials.gov","record_type":"trial","observed_at":"2026-04-18T10:00:00Z","ingested_at":"2026-04-18T10:00:05Z","normalized":{"title":"Phase II study of BI-1234 for oncology","company":"BioPharma Inc.","drug":"BI-1234","phase":"Phase II"},"raw":{"title":"Phase II study of BI-1234 for oncology","description":"A clinical trial"},"identifiers":{"nct_id":"NCT00000001"}}
-EOF
+./scripts/replay-bioscope-out.sh
 ```
 
-2. Run the worker in replay mode.
+This script handles venv activation, runs the replay, and displays a summary.
+
+**Option 2: Replay with labels for comparison**
+
+Run multiple replays with different labels to compare outputs:
+
+```bash
+./scripts/replay-bioscope-out.sh run-1
+./scripts/replay-bioscope-out.sh run-2
+./scripts/replay-bioscope-out.sh compare
+```
+
+The comparison shows whether the worker produces deterministic output (excluding timestamps).
+
+**Option 3: Manual replay with full control**
 
 ```bash
 source .venv/bin/activate
-python -m bioscope_workers --mode replay --input examples/ingestion-events.jsonl --output examples/enriched-events.jsonl
+python -m bioscope_workers \
+  --mode replay \
+  --input /Users/dedsec/Desktop/project/BioScope/out/ingestion.jsonl \
+  --output examples/enriched-from-bioscope-out.jsonl \
+  --checkpoint examples/bioscope.checkpoints
 ```
 
-3. Inspect the output file.
+Inspect the output (one enriched JSON object per line):
 
 ```bash
-cat examples/enriched-events.jsonl
+cat examples/enriched-from-bioscope-out.jsonl | head -n 1 | jq .
 ```
 
-The output is one JSON object per line. A typical enriched record looks like this:
+Each line contains the original event under `input_event` plus enrichment fields: `entities`, `classifications`, `alerts`.
+
+A typical enriched record looks like this:
 
 ```json
 {
   "alerts": {
     "emitted": true,
-    "message": "trial signal detected for ClinicalTrials.gov/trial involving BioPharma and BI-1234",
+    "message": "trial signal detected for clinicaltrials.gov/clinical_trial involving Novo Nordisk A/S and NNC0662-0419",
     "severity": "medium"
   },
   "classifications": {
     "evidence": [
-      "source:ClinicalTrials.gov",
-      "record_type:trial",
-      "observed_at:2026-04-18T10:00:00Z",
-      "ingested_at:2026-04-18T10:00:05Z",
-      "company:BioPharma",
-      "drug:BI-1234"
+      "source:clinicaltrials.gov",
+      "record_type:clinical_trial",
+      "observed_at:2026-04-12T18:30:00Z",
+      "ingested_at:2026-04-14T05:48:22.376460Z",
+      "company:Novo Nordisk A/S",
+      "drug:NNC0662-0419"
     ],
     "signal_class": "trial",
     "signal_types": ["trial_phase", "company_signal", "drug_signal"],
@@ -154,31 +171,32 @@ The output is one JSON object per line. A typical enriched record looks like thi
   },
   "enrichment_schema_version": "1.0.0",
   "entities": {
-    "companies": ["BioPharma"],
-    "drugs": ["BI-1234"],
-    "mentions": ["Phase", "study", "BI-1234", "oncology", "clinical"],
-    "phases": ["Phase II"]
+    "companies": ["Novo Nordisk A/S"],
+    "drugs": ["NNC0662-0419"],
+    "mentions": ["Research", "Study", "Looking", "Into", "How"],
+    "phases": []
   },
   "enriched_at": "2026-04-18T10:00:10.000000+00:00",
   "idempotency_key": "...",
   "input_event": {
     "schema_version": "1.0.0",
-    "source": "ClinicalTrials.gov",
-    "record_type": "trial",
-    "observed_at": "2026-04-18T10:00:00Z",
-    "ingested_at": "2026-04-18T10:00:05Z",
+    "source": "clinicaltrials.gov",
+    "record_type": "clinical_trial",
+    "observed_at": "2026-04-12T18:30:00Z",
+    "ingested_at": "2026-04-14T05:48:22.376460Z",
     "normalized": {
-      "title": "Phase II study of BI-1234 for oncology",
-      "company": "BioPharma Inc.",
-      "drug": "BI-1234",
-      "phase": "Phase II"
+      "source": "clinicaltrials.gov",
+      "record_type": "clinical_trial"
     },
     "raw": {
-      "title": "Phase II study of BI-1234 for oncology",
-      "description": "A clinical trial"
+      "protocolSection": {
+        "identificationModule": {
+          "nctId": "NCT07525791"
+        }
+      }
     },
     "identifiers": {
-      "nct_id": "NCT00000001"
+      "nct_id": "NCT07525791"
     }
   },
   "transport": "jsonl"
@@ -187,16 +205,17 @@ The output is one JSON object per line. A typical enriched record looks like thi
 
 What you should see:
 
-- One line in examples/enriched-events.jsonl for each input line.
+- One line in examples/enriched-from-bioscope-out.jsonl for each input line.
 - The same payload always produces the same idempotency key and the same enrichment fields.
-- If you run the same input again with a checkpoint file, duplicate events are skipped.
+- If you run the same input again with the same checkpoint file, duplicate events are skipped.
+- The worker can process the existing `BioScope/out/ingestion.jsonl` file directly without creating a new sample file.
 
 ## Kafka Production Mode
 
 The worker consumes ingestion events from Kafka, processes them in a consumer group, and writes enrichment to the output topic.
 
 ```bash
-pip install -e .[kafka]
+pip install -e '.[kafka]'
 python -m bioscope_workers \
   --mode kafka \
   --bootstrap-servers localhost:9092 \
@@ -213,10 +232,10 @@ If you want to see the Kafka output, read from the output topic with your prefer
 
 - `python -m venv .venv`: create an isolated local Python environment.
 - `source .venv/bin/activate`: activate the virtual environment on macOS and Linux.
-- `pip install -e .[dev]`: install the repository in editable mode with test dependencies.
+- `pip install -e '.[dev]'`: install the repository in editable mode with test dependencies.
 - `python -m bioscope_workers --mode replay --input <input.jsonl> --output <output.jsonl>`: run local JSONL replay mode.
 - `cat <output.jsonl>`: inspect the enriched JSONL output one line at a time.
-- `pip install -e .[kafka]`: install Kafka transport dependencies.
+- `pip install -e '.[kafka]'`: install Kafka transport dependencies.
 - `python -m bioscope_workers --mode kafka --bootstrap-servers <host:port> --input-topic <topic> --output-topic bioscope.enrichment.processed --group-id bioscope-nlp-workers`: run Kafka consumer/producer mode.
 - `pytest`: run the full test suite.
 

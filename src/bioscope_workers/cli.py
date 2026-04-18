@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 
+from bioscope_workers.contracts.envelope import CONTRACT_SCHEMA_VERSION
 from bioscope_workers.runtime.state import FileCheckpointStore, MemoryCheckpointStore
 from bioscope_workers.runtime.worker import WorkerPipeline
 from bioscope_workers.transports.jsonl import JsonlReader, JsonlWriter
@@ -20,6 +21,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--checkpoint", help="Optional checkpoint file for idempotency")
     parser.add_argument("--log-level", default="INFO")
     return parser
+
+
+def normalize_replay_payload(payload: dict) -> dict:
+    normalized_payload = dict(payload)
+    normalized_payload.setdefault("schema_version", CONTRACT_SCHEMA_VERSION)
+    return normalized_payload
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -41,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         reader = JsonlReader(args.input)
         writer = JsonlWriter(args.output)
         for payload in reader.read():
-            processed = pipeline.process(payload, transport="jsonl")
+            processed = pipeline.process(normalize_replay_payload(payload), transport="jsonl")
             if processed is not None:
                 writer.write(processed.to_dict())
         return 0

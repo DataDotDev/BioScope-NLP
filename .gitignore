@@ -1,16 +1,63 @@
+# Virtual environments
 .venv/
+venv/
+env/
+ENV/
+
+# Python cache & compiled files
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.so
+.Python
+
+# Python packaging
+dist/
+build/
+*.egg-info/
+*.egg
+*.whl
+
+# Testing & coverage
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 coverage.xml
 htmlcov/
-dist/
-build/
-*.egg-info/
+.tox/
+
+# IDE & editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
+Thumbs.db
+*.sublime-project
+*.sublime-workspace
+
+# Logs
 *.log
+logs/
+
+# Generated outputs from examples
+examples/bioscope.checkpoints*
+examples/enriched-from-bioscope-out*.jsonl
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Misc
+.python-version
+*.tmp
+*.bak

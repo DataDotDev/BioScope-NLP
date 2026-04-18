@@ -1,5 +1,6 @@
 import json
 
+from bioscope_workers.cli import normalize_replay_payload
 from bioscope_workers.runtime.worker import WorkerPipeline
 from bioscope_workers.transports.jsonl import JsonlReader
 
@@ -38,3 +39,20 @@ def test_jsonl_replay_matches_direct_processing(tmp_path) -> None:
 
     assert replay_events[0]["entities"] == direct.entities
     assert replay_events[0]["classifications"] == direct.classifications
+
+
+def test_replay_payload_backfills_schema_version() -> None:
+    legacy_payload = {
+        "source": "clinicaltrials.gov",
+        "record_type": "clinical_trial",
+        "observed_at": "2026-04-12T18:30:00Z",
+        "ingested_at": "2026-04-14T05:48:22.376460Z",
+        "normalized": {"title": "Legacy replay payload"},
+        "raw": {"title": "Legacy replay payload"},
+        "identifiers": {"nct_id": "NCT07525791"},
+    }
+
+    normalized_payload = normalize_replay_payload(legacy_payload)
+
+    assert normalized_payload["schema_version"] == "1.0.0"
+    assert normalized_payload["source"] == "clinicaltrials.gov"
