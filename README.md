@@ -13,10 +13,13 @@ Separate worker repository for BioScope ingestion events. This repository consum
 - [x] Kafka consumer/producer mode added for production transport.
 - [x] Idempotency checkpointing added.
 - [x] Tests added for contract validation and replay/Kafka equivalence.
+- [x] Kafka topic names and bootstrap settings can be configured with environment variables.
+- [x] Retry/backoff and dead-letter handling added for Kafka mode.
+- [x] Structured run summary logging added for production observability.
+- [x] Enriched output contract validation added for downstream storage safety.
+- [x] Kafka integration test added using a Docker-backed broker.
 - [ ] Connect this worker repo to the ingestion repo's published contract source or generated schema artifacts.
 - [ ] Replace the rule-based NLP heuristics with model-backed extraction if higher recall is needed.
-- [ ] Wire the Kafka topic names and bootstrap settings to environment variables or deployment config.
-- [ ] Add structured logging and metrics export for production observability.
 - [ ] Add a deployment manifest or container definition if this repo will be run in infrastructure.
 
 ## Repository Layout
@@ -56,9 +59,8 @@ The practical sync rule is simple: if ingestion changes the envelope, worker cha
 ## What Still Needs To Be Done
 
 - Publish or generate the shared schema from the ingestion repository instead of maintaining the contract manually here.
-- Add real Kafka integration tests against a broker or test container.
-- Move configuration values like topics, groups, and file paths into environment-driven settings.
-- Add deployment/runtime hardening for retries, backoff, dead-letter handling, and observability.
+- Add richer observability outputs (metrics export, dashboards, alerts).
+- Add deployment/runtime manifests for production rollout.
 
 ## Input Contract
 
@@ -214,17 +216,33 @@ What you should see:
 
 The worker consumes ingestion events from Kafka, processes them in a consumer group, and writes enrichment to the output topic.
 
+Configuration can come from command-line flags or environment variables:
+
+- `BIOSCOPE_KAFKA_BOOTSTRAP_SERVERS`
+- `BIOSCOPE_KAFKA_INPUT_TOPIC`
+- `BIOSCOPE_KAFKA_OUTPUT_TOPIC` (default `bioscope.enrichment.processed`)
+- `BIOSCOPE_KAFKA_GROUP_ID` (default `bioscope-nlp-workers`)
+- `BIOSCOPE_KAFKA_MAX_RETRIES` (default `3`)
+- `BIOSCOPE_KAFKA_RETRY_BACKOFF_SECONDS` (default `1.0`)
+- `BIOSCOPE_KAFKA_PRODUCER_TIMEOUT_SECONDS` (default `30`)
+- `BIOSCOPE_KAFKA_CONSUMER_TIMEOUT_MS` (optional)
+- `BIOSCOPE_KAFKA_DLQ_PATH` (optional local JSONL dead-letter file)
+- `BIOSCOPE_LOG_LEVEL` (default `INFO`)
+
 ```bash
 pip install -e '.[kafka]'
+export BIOSCOPE_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+export BIOSCOPE_KAFKA_INPUT_TOPIC=bioscope.ingestion.events
+export BIOSCOPE_KAFKA_OUTPUT_TOPIC=bioscope.enrichment.processed
+export BIOSCOPE_KAFKA_GROUP_ID=bioscope-nlp-workers
+export BIOSCOPE_KAFKA_DLQ_PATH=examples/kafka-dlq.jsonl
 python -m bioscope_workers \
   --mode kafka \
-  --bootstrap-servers localhost:9092 \
-  --input-topic bioscope.ingestion.events \
-  --output-topic bioscope.enrichment.processed \
-  --group-id bioscope-nlp-workers
+  --max-retries 5 \
+  --retry-backoff-seconds 1.5
 ```
 
-The Kafka command consumes the same envelope format as replay mode, joins the specified consumer group, and publishes enriched records to `bioscope.enrichment.processed`.
+The Kafka command consumes the same envelope format as replay mode, joins the specified consumer group, and publishes enriched records to `bioscope.enrichment.processed`. Failed events can be written to the configured dead-letter JSONL path, and each run logs a structured summary with received/processed/duplicate/failed counts.
 
 If you want to see the Kafka output, read from the output topic with your preferred Kafka tool or consumer. The worker sends the same JSON structure as replay mode, just through Kafka instead of a file.
 
@@ -236,8 +254,11 @@ If you want to see the Kafka output, read from the output topic with your prefer
 - `python -m bioscope_workers --mode replay --input <input.jsonl> --output <output.jsonl>`: run local JSONL replay mode.
 - `cat <output.jsonl>`: inspect the enriched JSONL output one line at a time.
 - `pip install -e '.[kafka]'`: install Kafka transport dependencies.
-- `python -m bioscope_workers --mode kafka --bootstrap-servers <host:port> --input-topic <topic> --output-topic bioscope.enrichment.processed --group-id bioscope-nlp-workers`: run Kafka consumer/producer mode.
+- `python -m bioscope_workers --mode kafka`: run Kafka consumer/producer mode using environment configuration.
+- `python -m bioscope_workers --mode kafka --bootstrap-servers <host:port> --input-topic <topic> --output-topic bioscope.enrichment.processed --group-id bioscope-nlp-workers --max-retries 5 --retry-backoff-seconds 1.5 --dlq-path examples/kafka-dlq.jsonl`: run Kafka mode with explicit retry and dead-letter settings.
 - `pytest`: run the full test suite.
+- `pip install -e '.[integration]'`: install Docker-backed integration test dependencies.
+- `pytest -m integration`: run Kafka integration tests (requires Docker).
 
 ## Example NLP Pipeline
 
@@ -265,6 +286,7 @@ The current test coverage includes:
 - idempotency key stability
 - deterministic pipeline behavior
 - replay and Kafka-path output equivalence
+- Docker-backed Kafka producer/consumer integration roundtrip
 
 ## How This Stays In Sync With Ingestion
 

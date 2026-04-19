@@ -6,6 +6,7 @@ from bioscope_workers.contracts.envelope import (
     compute_idempotency_key,
     load_envelope,
 )
+from bioscope_workers.contracts.enrichment import validate_enriched_event
 
 __all__ = [
     "CONTRACT_SCHEMA_VERSION",
@@ -14,4 +15,5 @@ __all__ = [
     "canonical_payload",
     "compute_idempotency_key",
     "load_envelope",
+    "validate_enriched_event",
 ]

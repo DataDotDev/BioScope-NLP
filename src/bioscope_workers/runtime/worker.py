@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import logging
 from typing import Any
 
+from bioscope_workers.contracts.enrichment import validate_enriched_event
 from bioscope_workers.contracts.envelope import ENRICHMENT_SCHEMA_VERSION, compute_idempotency_key, load_envelope
 from bioscope_workers.runtime.state import CheckpointStore
 from bioscope_workers.services.alerts import AlertService
@@ -74,6 +75,8 @@ class WorkerPipeline:
             alerts=alerts,
             enriched_at=datetime.now(timezone.utc).isoformat(),
         )
+
+        validate_enriched_event(processed.to_dict())
 
         if self.checkpoint_store:
             self.checkpoint_store.mark(idempotency_key)

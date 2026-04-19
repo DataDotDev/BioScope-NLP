@@ -13,6 +13,11 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 kafka = ["kafka-python>=2.0.2"]
+integration = [
+	"pytest>=8.0",
+	"kafka-python>=2.0.2",
+	"testcontainers[kafka]>=4.8.2",
+]
 
 [project.scripts]
 bioscope-worker = "bioscope_workers.cli:main"
@@ -26,3 +31,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
+markers = [
+	"integration: runs Docker-backed Kafka integration tests",
+]

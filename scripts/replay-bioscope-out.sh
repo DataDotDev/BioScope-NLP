@@ -75,7 +75,7 @@ source "$REPO_DIR/.venv/bin/activate"
 # Ensure the package is installed in the venv
 if ! python -c "import bioscope_workers" 2>/dev/null; then
     echo "Installing bioscope_workers package..."
-    pip install -e "$REPO_DIR/[dev]" -q
+    pip install -e "${REPO_DIR}[dev]" -q
 fi
 
 # Create output directory
