@@ -35,17 +35,17 @@ def test_pipeline_is_deterministic_for_same_input() -> None:
     assert first.entities["drugs"] == ["ABX-101"]
 
 
-def test_pipeline_outputs_same_structure_for_replay_and_kafka_paths() -> None:
+def test_pipeline_outputs_same_structure_for_replay_and_watch_paths() -> None:
     payload = sample_payload()
 
     replay_pipeline = WorkerPipeline()
-    kafka_pipeline = WorkerPipeline()
+    watch_pipeline = WorkerPipeline()
 
     replay_output = replay_pipeline.process(payload, transport="jsonl")
-    kafka_output = kafka_pipeline.process(payload, transport="kafka")
+    watch_output = watch_pipeline.process(payload, transport="watch")
 
     assert replay_output is not None
-    assert kafka_output is not None
-    assert replay_output.idempotency_key == kafka_output.idempotency_key
-    assert replay_output.entities == kafka_output.entities
-    assert replay_output.classifications == kafka_output.classifications
+    assert watch_output is not None
+    assert replay_output.idempotency_key == watch_output.idempotency_key
+    assert replay_output.entities == watch_output.entities
+    assert replay_output.classifications == watch_output.classifications

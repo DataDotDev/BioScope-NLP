@@ -1,6 +1,6 @@
 # BioScope NLP Workers
 
-Separate worker repository for BioScope ingestion events. This repository consumes the same canonical event envelope in production Kafka and in local JSONL replay mode, enriches the event with NLP-derived intelligence, and publishes enriched results to Kafka or JSONL.
+Separate worker repository for BioScope ingestion events. This repository consumes the same canonical event envelope in local JSONL replay mode and file-polling watch mode, enriches the event with NLP-derived intelligence, and writes enriched results to JSONL.
 
 ## Checklist
 
@@ -10,15 +10,12 @@ Separate worker repository for BioScope ingestion events. This repository consum
 - [x] Deterministic NLP enrichment pipeline added.
 - [x] Entity extraction, company normalization, drug normalization, phase detection, and signal classification implemented.
 - [x] JSONL replay mode added for local development.
-- [x] Kafka consumer/producer mode added for production transport.
+- [x] File-polling watch mode added for low-complexity handoff.
 - [x] Idempotency checkpointing added.
-- [x] Tests added for contract validation and replay/Kafka equivalence.
-- [x] Kafka topic names and bootstrap settings can be configured with environment variables.
-- [x] Retry/backoff and dead-letter handling added for Kafka mode.
-- [x] Structured run summary logging added for production observability.
+- [x] Tests added for contract validation, replay, and file-watch equivalence.
+- [x] Structured run summary logging added for file-watch observability.
 - [x] Enriched output contract validation added for downstream storage safety.
-- [x] Kafka integration test added using a Docker-backed broker.
-- [ ] Connect this worker repo to the ingestion repo's published contract source or generated schema artifacts.
+- [x] Shared schema bundle added for ingestion/worker consumption.
 - [ ] Replace the rule-based NLP heuristics with model-backed extraction if higher recall is needed.
 - [ ] Add a deployment manifest or container definition if this repo will be run in infrastructure.
 
@@ -48,17 +45,24 @@ The ingestion repository owns the canonical event envelope. This worker reposito
 
 The practical sync rule is simple: if ingestion changes the envelope, worker changes must land in the same release window and the contract version must be bumped.
 
+## Shared Schema Bundle
+
+The shared contract bundle is checked into [schemas/bioscope.shared.contracts.json](schemas/bioscope.shared.contracts.json) so the ingestion and worker repositories can publish and consume the same field definitions.
+
+- The ingestion repo should publish the same bundle version alongside its ingestion producer.
+- This worker consumes the bundle through the local contract module and can export or load the same JSON artifact when needed.
+- If the contract changes, both repos should bump the bundle version together.
+
 ## What Is Done
 
 - Canonical contract validation is enforced before processing.
-- The same input contract is accepted in JSONL replay and Kafka mode.
+- The same input contract is accepted in JSONL replay and file-watch mode.
 - Enrichment output is deterministic for the same payload.
 - Idempotent processing is supported with a checkpoint store.
 - The worker emits enriched output fields for entities, classifications, and alerts.
 
 ## What Still Needs To Be Done
 
-- Publish or generate the shared schema from the ingestion repository instead of maintaining the contract manually here.
 - Add richer observability outputs (metrics export, dashboards, alerts).
 - Add deployment/runtime manifests for production rollout.
 
@@ -212,53 +216,77 @@ What you should see:
 - If you run the same input again with the same checkpoint file, duplicate events are skipped.
 - The worker can process the existing `BioScope/out/ingestion.jsonl` file directly without creating a new sample file.
 
-## Kafka Production Mode
+## File Bridge Mode
 
-The worker consumes ingestion events from Kafka, processes them in a consumer group, and writes enrichment to the output topic.
+The worker consumes ingestion events from a shared JSONL file, processes them in a watch loop, and writes enrichment to another JSONL file.
+
+Run the ingestion layer and this worker as separate processes against the same shared file path or mounted volume:
+
+1. Start the ingestion service so it appends canonical events to `BIOSCOPE_WATCH_INPUT_FILE` using the shared schema bundle.
+2. Start this worker so it polls the same file on an interval and writes enriched output to `BIOSCOPE_WATCH_OUTPUT_FILE`.
+3. Keep both services independent: restart either one without restarting the other as long as the shared file paths remain available.
 
 Configuration can come from command-line flags or environment variables:
 
-- `BIOSCOPE_KAFKA_BOOTSTRAP_SERVERS`
-- `BIOSCOPE_KAFKA_INPUT_TOPIC`
-- `BIOSCOPE_KAFKA_OUTPUT_TOPIC` (default `bioscope.enrichment.processed`)
-- `BIOSCOPE_KAFKA_GROUP_ID` (default `bioscope-nlp-workers`)
-- `BIOSCOPE_KAFKA_MAX_RETRIES` (default `3`)
-- `BIOSCOPE_KAFKA_RETRY_BACKOFF_SECONDS` (default `1.0`)
-- `BIOSCOPE_KAFKA_PRODUCER_TIMEOUT_SECONDS` (default `30`)
-- `BIOSCOPE_KAFKA_CONSUMER_TIMEOUT_MS` (optional)
-- `BIOSCOPE_KAFKA_DLQ_PATH` (optional local JSONL dead-letter file)
 - `BIOSCOPE_LOG_LEVEL` (default `INFO`)
+- `BIOSCOPE_WATCH_INPUT_FILE`
+- `BIOSCOPE_WATCH_OUTPUT_FILE` (default `examples/enriched-stream.jsonl`)
+- `BIOSCOPE_WATCH_CURSOR_FILE` (default `examples/stream.cursor`)
+- `BIOSCOPE_WATCH_POLL_INTERVAL_SECONDS` (default `2.0`)
+- `BIOSCOPE_WATCH_IDLE_LOG_INTERVAL_SECONDS` (default `30.0`)
+- `BIOSCOPE_REPLAY_INPUT`
+- `BIOSCOPE_REPLAY_OUTPUT` (default `examples/enriched-events.jsonl`)
+- `BIOSCOPE_REPLAY_CHECKPOINT` (default `examples/replay.checkpoints`)
 
 ```bash
-pip install -e '.[kafka]'
-export BIOSCOPE_KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-export BIOSCOPE_KAFKA_INPUT_TOPIC=bioscope.ingestion.events
-export BIOSCOPE_KAFKA_OUTPUT_TOPIC=bioscope.enrichment.processed
-export BIOSCOPE_KAFKA_GROUP_ID=bioscope-nlp-workers
-export BIOSCOPE_KAFKA_DLQ_PATH=examples/kafka-dlq.jsonl
-python -m bioscope_workers \
-  --mode kafka \
-  --max-retries 5 \
-  --retry-backoff-seconds 1.5
+cp .env.example .env
+./scripts/run-watch.sh
 ```
 
-The Kafka command consumes the same envelope format as replay mode, joins the specified consumer group, and publishes enriched records to `bioscope.enrichment.processed`. Failed events can be written to the configured dead-letter JSONL path, and each run logs a structured summary with received/processed/duplicate/failed counts.
+The watch command consumes the same envelope format as replay mode, polls the input JSONL file at a configurable interval, and publishes enriched records to the output JSONL file. Each run logs a structured summary with received, processed, duplicate, and failed counts.
 
-If you want to see the Kafka output, read from the output topic with your preferred Kafka tool or consumer. The worker sends the same JSON structure as replay mode, just through Kafka instead of a file.
+If you want to see the output, read from the output JSONL file with your preferred tooling. The worker sends the same JSON structure as replay mode, just through the file bridge instead of a broker.
+
+In local development, the ingestion layer and this worker should be run independently. The ingestion process produces canonical events by appending to the shared input file, and this worker reads that file, enriches the payload, and appends a new message to the output file. That is the same low-overhead communication path you can use for the storage and backend layer.
 
 ## Run Commands
 
 - `python -m venv .venv`: create an isolated local Python environment.
 - `source .venv/bin/activate`: activate the virtual environment on macOS and Linux.
 - `pip install -e '.[dev]'`: install the repository in editable mode with test dependencies.
+- `cp .env.example .env`: create your environment file.
+- `./scripts/run-local.sh`: run local replay mode using values from `.env`.
+- `./scripts/run-local.sh .env.production`: run local replay mode with a specific env file.
 - `python -m bioscope_workers --mode replay --input <input.jsonl> --output <output.jsonl>`: run local JSONL replay mode.
 - `cat <output.jsonl>`: inspect the enriched JSONL output one line at a time.
-- `pip install -e '.[kafka]'`: install Kafka transport dependencies.
-- `python -m bioscope_workers --mode kafka`: run Kafka consumer/producer mode using environment configuration.
-- `python -m bioscope_workers --mode kafka --bootstrap-servers <host:port> --input-topic <topic> --output-topic bioscope.enrichment.processed --group-id bioscope-nlp-workers --max-retries 5 --retry-backoff-seconds 1.5 --dlq-path examples/kafka-dlq.jsonl`: run Kafka mode with explicit retry and dead-letter settings.
+- `./scripts/run-watch.sh`: run the file-polling bridge using values from `.env`.
+- `./scripts/run-watch.sh .env.production`: run the file bridge with a specific env file.
+- `python -m bioscope_workers --mode watch`: run the file-polling bridge using environment configuration.
 - `pytest`: run the full test suite.
-- `pip install -e '.[integration]'`: install Docker-backed integration test dependencies.
-- `pytest -m integration`: run Kafka integration tests (requires Docker).
+
+## Env-First Startup
+
+Use the scripts in `scripts/` so all runtime values are loaded from env files.
+
+1. Create your env file.
+
+```bash
+cp .env.example .env
+```
+
+2. Run local replay mode.
+
+```bash
+./scripts/run-local.sh
+```
+
+3. Run file bridge mode.
+
+```bash
+./scripts/run-watch.sh
+```
+
+For production-style runs, keep a separate env file (for example `.env.production`) and pass it as the first script argument.
 
 ## Example NLP Pipeline
 
@@ -270,11 +298,11 @@ The worker pipeline is intentionally deterministic and message-driven:
 4. Normalize company and drug names.
 5. Detect trial phase and regulatory event signals.
 6. Classify the signal and optionally emit alerts.
-7. Persist output to Kafka or JSONL.
+7. Persist output to JSONL.
 
 ## Tests
 
-The tests verify that the same input produces the same enriched output regardless of whether it enters the worker through local replay or Kafka-style decoding.
+The tests verify that the same input produces the same enriched output regardless of whether it enters the worker through local replay or file-watch ingestion.
 
 ```bash
 pytest
@@ -285,14 +313,14 @@ The current test coverage includes:
 - canonical envelope validation
 - idempotency key stability
 - deterministic pipeline behavior
-- replay and Kafka-path output equivalence
-- Docker-backed Kafka producer/consumer integration roundtrip
+- replay and file-watch output equivalence
+- shared schema bundle publication and consumption metadata
 
 ## How This Stays In Sync With Ingestion
 
 This repository stays aligned with the ingestion repo by keeping the contract in a dedicated module, versioning the envelope explicitly, and failing fast on incompatible schema changes. In practice, this means:
 
-- the ingestion repo publishes a versioned canonical envelope
+- the ingestion repo publishes a versioned canonical envelope and appends it to the shared JSONL file
 - this repo mirrors that contract in `bioscope_workers.contracts`
 - any breaking envelope change requires a coordinated major version bump
 - tests guard the contract and the deterministic enrichment output
@@ -302,3 +330,4 @@ This repository stays aligned with the ingestion repo by keeping the contract in
 - The worker code currently uses deterministic heuristics so the same input always produces the same output.
 - The repository is designed to be run as a separate service from the ingestion layer.
 - The local replay path is intended for developer validation and backfills, not as a transport-specific code path.
+- The file-watch path is the low-complexity communication path for keeping ingestion and enrichment loosely coupled.

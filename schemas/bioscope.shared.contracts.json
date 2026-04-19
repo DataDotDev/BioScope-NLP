@@ -1,0 +1,36 @@
+{
+  "bundle_name": "bioscope.shared.contracts",
+  "bundle_version": "1.0.0",
+  "schemas": [
+    {
+      "description": "Canonical ingestion envelope shared by the ingestion and NLP worker repositories.",
+      "name": "bioscope.ingestion.event",
+      "required_fields": [
+        "schema_version",
+        "source",
+        "record_type",
+        "observed_at",
+        "ingested_at",
+        "normalized",
+        "raw",
+        "identifiers"
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "description": "Enriched worker output contract consumed by downstream storage and backend services.",
+      "name": "bioscope.enrichment.event",
+      "required_fields": [
+        "transport",
+        "idempotency_key",
+        "enrichment_schema_version",
+        "input_event",
+        "entities",
+        "classifications",
+        "alerts",
+        "enriched_at"
+      ],
+      "version": "1.0.0"
+    }
+  ]
+}

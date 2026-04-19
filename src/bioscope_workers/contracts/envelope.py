@@ -5,7 +5,8 @@ from hashlib import sha256
 import json
 from typing import Any
 
-CONTRACT_SCHEMA_VERSION = "1.0.0"
+from bioscope_workers.contracts.schema import CONTRACT_SCHEMA_VERSION, INGESTION_EVENT_REQUIRED_FIELDS
+
 ENRICHMENT_SCHEMA_VERSION = "1.0.0"
 
 
@@ -84,21 +85,12 @@ def load_envelope(payload: dict[str, Any]) -> EventEnvelope:
             f"unsupported schema_version {schema_version}; expected major version {CONTRACT_SCHEMA_VERSION}"
         )
 
-    required = {"source", "record_type", "observed_at", "ingested_at", "normalized", "raw", "identifiers"}
+    required = set(INGESTION_EVENT_REQUIRED_FIELDS) - {"schema_version"}
     missing = sorted(required - payload.keys())
     if missing:
         raise ValidationError(f"missing required fields: {', '.join(missing)}")
 
-    known_keys = {
-        "schema_version",
-        "source",
-        "record_type",
-        "observed_at",
-        "ingested_at",
-        "normalized",
-        "raw",
-        "identifiers",
-    }
+    known_keys = set(INGESTION_EVENT_REQUIRED_FIELDS)
     extra = {key: value for key, value in payload.items() if key not in known_keys}
 
     return EventEnvelope(

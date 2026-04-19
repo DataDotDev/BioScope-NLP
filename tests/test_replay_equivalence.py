@@ -34,7 +34,7 @@ def test_jsonl_replay_matches_direct_processing(tmp_path) -> None:
         assert processed is not None
         replay_events.append(processed.to_dict())
 
-    direct = WorkerPipeline().process(sample_payload(), transport="kafka")
+    direct = WorkerPipeline().process(sample_payload(), transport="watch")
     assert direct is not None
 
     assert replay_events[0]["entities"] == direct.entities
